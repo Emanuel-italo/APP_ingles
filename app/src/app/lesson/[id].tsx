@@ -5,6 +5,7 @@ import { api, type Lesson, type ScoreResult } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { speak, useRecorder } from '@/lib/voice';
 import { MicButton } from '@/components/MicButton';
+import { MissedWords, ScoredSentence } from '@/components/ScoredWords';
 import { Button, Center, ErrorText, Icon, Input, Loading, ProgressBar } from '@/components/ui';
 import { colors, fonts, radius, type } from '@/lib/theme';
 
@@ -112,13 +113,11 @@ export default function LessonScreen() {
 
       <View style={styles.phraseCard}>
         <Text style={type.overline}>Ouça e repita</Text>
-        <Text style={styles.phrase}>
-          {result
-            ? result.words.map((w, i) => (
-                <Text key={i} style={{ color: w.ok ? colors.success : colors.danger }}>{w.word} </Text>
-              ))
-            : phrase!.en}
-        </Text>
+        {result ? (
+          <ScoredSentence words={result.words} style={styles.phrase} />
+        ) : (
+          <Text style={styles.phrase}>{phrase!.en}</Text>
+        )}
         <Text style={styles.translation}>{phrase!.pt}</Text>
         <View style={styles.listenRow}>
           <Pressable style={styles.listen} onPress={() => speak(phrase!.en)}>
@@ -143,6 +142,8 @@ export default function LessonScreen() {
           </View>
         </View>
       ) : null}
+
+      {result ? <MissedWords words={result.words} /> : null}
 
       <ErrorText>{error}</ErrorText>
 

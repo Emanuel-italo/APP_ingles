@@ -4,6 +4,7 @@ import type { Exercise, ScoreResult } from '@/lib/api';
 import { api } from '@/lib/api';
 import { speak, useRecorder } from '@/lib/voice';
 import { MicButton } from '@/components/MicButton';
+import { MissedWords, ScoredSentence } from '@/components/ScoredWords';
 import { Button, ErrorText, Icon } from '@/components/ui';
 import { colors, fonts, radius, type } from '@/lib/theme';
 
@@ -303,19 +304,18 @@ export function SpeakExercise({
       <View style={styles.promptRow}>
         <SpeakerButton text={ex.audio} />
         <View style={{ flex: 1, gap: 4 }}>
-          <Text style={styles.promptSentence}>
-            {result
-              ? result.words.map((w, i) => (
-                  <Text key={i} style={{ color: w.ok ? colors.success : colors.danger }}>{w.word} </Text>
-                ))
-              : ex.prompt}
-          </Text>
+          {result ? (
+            <ScoredSentence words={result.words} style={styles.promptSentence} />
+          ) : (
+            <Text style={styles.promptSentence}>{ex.prompt}</Text>
+          )}
           <Text style={type.small}>{ex.translation}</Text>
         </View>
       </View>
       <View style={{ alignItems: 'center', paddingVertical: 12 }}>
         <MicButton recording={recorder.isRecording} busy={busy} onPress={locked ? () => {} : toggle} />
       </View>
+      {result ? <MissedWords words={result.words} /> : null}
       <ErrorText>{error}</ErrorText>
       {!locked ? <Button title="Não posso falar agora" variant="ghost" onPress={onSkip} /> : null}
     </View>

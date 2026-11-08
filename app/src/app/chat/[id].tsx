@@ -203,6 +203,7 @@ export default function ChatScreen() {
   if (!messages) return error ? <Center><ErrorText>{error}</ErrorText></Center> : <Loading />;
 
   const waitingForUser = !busy && messages[messages.length - 1]?.role === 'assistant';
+  const lastFeedback = [...messages].reverse().find((m) => m.role === 'user')?.feedback ?? null;
   const draft = text.trim();
   const helpIsCurrent = help && helpFor === draft && draft.length >= 2;
 
@@ -235,7 +236,8 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={(m, i) => String(m.id ?? `local-${i}`)}
         contentContainerStyle={styles.list}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        // On web the new rows may still be laying out; wait a frame before scrolling.
+        onContentSizeChange={() => setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50)}
         renderItem={({ item }) =>
           item.role === 'assistant' ? (
             <TutorBubble
@@ -261,6 +263,7 @@ export default function ChatScreen() {
             {waitingForUser && !justCompleted ? (
               <YourTurn
                 recording={recorder.isRecording}
+                feedback={lastFeedback}
                 suggestions={suggestions}
                 loading={suggestLoading}
                 onHint={loadSuggestions}
@@ -543,19 +546,89 @@ function Correction({ feedback }: { feedback: Feedback }) {
 
 function YourTurn({
   recording,
+  feedback,
   suggestions,
   loading,
   onHint,
   onUse,
 }: {
   recording: boolean;
+  feedback: Feedback | null;
   suggestions: ReplySuggestion[] | null;
   loading: boolean;
   onHint: () => void;
   onUse: (s: ReplySuggestion) => void;
 }) {
+  // Remember which feedback was expanded, so a new answer starts collapsed.
+  const [openFor, setOpenFor] = useState<Feedback | null>(null);
+  const showCorrection = !!feedback && openFor === feedback;
+
+  // Karaoke-style highlight of the word being spoken in the suggestion that is playing.
+  const [reading, setReading] = useState<Reading | null>(null);
+  const playSeq = useRef(0);
+
+  const play = (index: number, slow: boolean) => {
+    const seq = ++playSeq.current;
+    setReading({ list: suggestions!, index, start: 0, end: 0, single: false });
+    speak(suggestions![index].en, {
+      slow,
+      onWord: (start, end) => { if (seq === playSeq.current) setReading({ list: suggestions!, index, start, end, single: false }); },
+      onEnd: () => { if (seq === playSeq.current) setReading(null); },
+    });
+  };
+
+  // Tapping a word speaks just that word, slowly, and highlights it while it plays.
+  const playWord = (index: number, start: number, end: number) => {
+    const word = suggestions![index].en.slice(start, end).replace(/^[^\w']+|[^\w']+$/g, '');
+    if (!word) return;
+    const seq = ++playSeq.current;
+    setReading({ list: suggestions!, index, start, end, single: true });
+    speak(word, { slow: true, onEnd: () => { if (seq === playSeq.current) setReading(null); } });
+    showMeaning(index, word);
+  };
+
+  // Meaning of the tapped word, shown above its sentence.
+  const [meaning, setMeaning] = useState<WordMeaning | null>(null);
+  const meaningCache = useRef(new Map<string, string>());
+
+  const showMeaning = async (index: number, word: string) => {
+    const sentence = suggestions![index].en;
+    const key = `${word.toLowerCase()}|${sentence}`;
+    const base = { list: suggestions!, index, word };
+    const cached = meaningCache.current.get(key);
+    if (cached) { setMeaning({ ...base, pt: cached }); return; }
+    setMeaning({ ...base, pt: null });
+    try {
+      const { pt } = await api.translateWord(word, sentence);
+      meaningCache.current.set(key, pt);
+      setMeaning((m) => (m?.word === word && m.index === index ? { ...base, pt } : m));
+    } catch (e) {
+      setMeaning((m) => (m?.word === word && m.index === index ? { ...base, pt: null, error: (e as Error).message } : m));
+    }
+  };
+
   return (
     <View style={styles.turn}>
+      {feedback ? (
+        feedback.ok ? (
+          <View style={styles.resultRow}>
+            <View style={styles.okMark}><Icon name="checkmark" size={12} color={colors.success} /></View>
+            <Text style={[styles.resultText, { color: colors.success }]}>Você falou certo!</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 8 }}>
+            <Pressable onPress={() => setOpenFor(showCorrection ? null : feedback)} style={styles.resultRow} accessibilityLabel="Ver correção">
+              <View style={styles.asterisk}><Text style={styles.asteriskText}>*</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resultText, { color: colors.warning }]}>Quase! O certo seria:</Text>
+                <Text style={styles.corrected}>{feedback.corrected}</Text>
+              </View>
+              <Icon name={showCorrection ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+            </Pressable>
+            {showCorrection ? <Correction feedback={feedback} /> : null}
+          </View>
+        )
+      ) : null}
       <View style={styles.turnHead}>
         <Text style={styles.turnText}>{recording ? 'Ouvindo você…' : 'Sua vez. Responda falando.'}</Text>
         <Pressable onPress={onHint} style={[styles.hintButton, suggestions && styles.hintButtonOn]} accessibilityLabel="Ideias do que dizer">
@@ -574,11 +647,35 @@ function YourTurn({
           <Text style={[type.small, { marginBottom: 4 }]}>Leia uma em voz alta ou toque em Usar para editar.</Text>
           {suggestions.map((s, i) => (
             <View key={i} style={[styles.suggestion, i > 0 && styles.suggestionBorder]}>
-              <Pressable onPress={() => speak(s.en)} hitSlop={6} accessibilityLabel="Ouvir sugestão">
-                <Icon name="volume-high-outline" size={18} color={colors.ink2} />
-              </Pressable>
+              <View style={styles.suggestionAudio}>
+                <Pressable onPress={() => play(i, false)} hitSlop={6} accessibilityLabel="Ouvir sugestão">
+                  <Icon name="volume-high-outline" size={18} color={colors.ink2} />
+                </Pressable>
+                <Pressable onPress={() => play(i, true)} hitSlop={6} accessibilityLabel="Ouvir sugestão devagar">
+                  <Icon name="hourglass-outline" size={17} color={colors.ink2} />
+                </Pressable>
+              </View>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.suggestionEn}>{s.en}</Text>
+                {meaning?.list === suggestions && meaning.index === i ? (
+                  <View style={styles.meaning}>
+                    <Text style={styles.meaningWord}>{meaning.word}</Text>
+                    {meaning.pt ? (
+                      <Text style={styles.meaningPt}>{meaning.pt}</Text>
+                    ) : meaning.error ? (
+                      <Text style={[styles.meaningPt, { color: colors.muted }]}>{meaning.error}</Text>
+                    ) : (
+                      <ActivityIndicator size="small" color={colors.muted} />
+                    )}
+                    <Pressable onPress={() => setMeaning(null)} hitSlop={8} accessibilityLabel="Fechar significado">
+                      <Icon name="close" size={14} color={colors.muted} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                <TappableText
+                  text={s.en}
+                  reading={reading?.list === suggestions && reading.index === i ? reading : null}
+                  onWord={(start, end) => playWord(i, start, end)}
+                />
                 {s.pt ? <Text style={styles.suggestionPt}>{s.pt}</Text> : null}
               </View>
               <Pressable onPress={() => onUse(s)} style={styles.useButton}>
@@ -589,6 +686,34 @@ function YourTurn({
         </View>
       ) : null}
     </View>
+  );
+}
+
+type WordMeaning = { list: ReplySuggestion[]; index: number; word: string; pt: string | null; error?: string };
+
+type Reading = { list: ReplySuggestion[]; index: number; start: number; end: number; single: boolean };
+
+/** Sentence where every word can be tapped to hear it, with karaoke highlight of `reading`. */
+function TappableText({ text, reading, onWord }: { text: string; reading: Reading | null; onWord: (start: number, end: number) => void }) {
+  const tokens = [...text.matchAll(/\S+|\s+/g)].map((m) => ({ t: m[0], start: m.index, end: m.index + m[0].length }));
+
+  return (
+    <Text style={styles.suggestionEn}>
+      {tokens.map(({ t, start, end }) => {
+        if (!t.trim()) return t;
+        const current = reading && start < reading.end && end > reading.start;
+        const done = reading && !reading.single && end <= reading.start;
+        return (
+          <Text
+            key={start}
+            onPress={() => onWord(start, end)}
+            style={[styles.tappableWord, done && { color: colors.accent }, current && styles.readingWord]}
+          >
+            {t}
+          </Text>
+        );
+      })}
+    </Text>
   );
 }
 
@@ -703,12 +828,20 @@ const styles = StyleSheet.create({
   typingText: { color: colors.muted, fontFamily: fonts.displayItalic, fontSize: 14 },
 
   turn: { alignSelf: 'flex-end', width: '86%', borderRadius: 18, borderTopRightRadius: 4, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.line, padding: 14, gap: 10 },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.line },
+  resultText: { fontFamily: fonts.semibold, fontSize: 13 },
   turnHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   turnText: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: colors.muted },
   hintButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: radius.pill, backgroundColor: colors.accentSoft },
   hintButtonOn: { backgroundColor: colors.ink, paddingHorizontal: 8 },
   hintText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.accent },
   suggestion: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  tappableWord: { cursor: 'pointer' } as object,
+  meaning: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginBottom: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.sm, backgroundColor: colors.ink },
+  meaningWord: { fontFamily: fonts.semibold, fontSize: 13, color: '#fff' },
+  meaningPt: { fontFamily: fonts.regular, fontSize: 13, color: 'rgba(255,255,255,0.8)' },
+  readingWord: { backgroundColor: colors.accentSoft, color: colors.accentInk, borderRadius: 4 },
+  suggestionAudio: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   suggestionBorder: { borderTopWidth: 1, borderTopColor: colors.line },
   suggestionEn: { fontFamily: fonts.medium, fontSize: 15, color: colors.ink, lineHeight: 21 },
   suggestionPt: { fontFamily: fonts.regular, fontSize: 13, color: colors.muted },

@@ -120,6 +120,24 @@ export async function translateToPt(text) {
   return parsed.pt ? String(parsed.pt).trim() : null;
 }
 
+/** Meaning of one English word as used in `sentence`, in Brazilian Portuguese (a few words at most). */
+export async function translateWord({ word, sentence }) {
+  if (!aiEnabled()) return null;
+  const parsed = await chatJson({
+    model: FAST_MODEL,
+    temperature: 0.2,
+    messages: [
+      {
+        role: 'system',
+        content: `Give the meaning in Brazilian Portuguese of the English word the user asks about, as it is used in the given sentence.
+Answer with 1 to 4 words, lowercase unless it is a proper noun. Respond only with JSON: {"pt": "..."}`,
+      },
+      { role: 'user', content: `Word: ${word}\nSentence: ${sentence}` },
+    ],
+  });
+  return parsed.pt ? String(parsed.pt).trim() : null;
+}
+
 /**
  * Live writing support while the learner types a reply.
  * The draft may be English, Portuguese or a mix of both.

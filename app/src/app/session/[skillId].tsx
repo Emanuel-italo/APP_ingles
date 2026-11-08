@@ -236,6 +236,24 @@ export default function SessionScreen() {
               <Text style={[styles.feedbackTitle, { color: phase === 'correct' ? colors.success : colors.danger }]}>
                 {phase === 'correct' ? PRAISE[solved % PRAISE.length] : 'Resposta correta:'}
               </Text>
+              {'audio' in current ? (
+                <View style={styles.replay}>
+                  <Pressable
+                    onPress={() => speak(current.audio)}
+                    style={styles.replayButton}
+                    accessibilityLabel="Ouvir a frase novamente"
+                  >
+                    <Icon name="volume-high" size={20} color={phase === 'correct' ? colors.success : colors.danger} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => speak(current.audio, { slow: true })}
+                    style={styles.replayButton}
+                    accessibilityLabel="Ouvir devagar"
+                  >
+                    <Icon name="hourglass-outline" size={18} color={phase === 'correct' ? colors.success : colors.danger} />
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
             {phase === 'wrong' && solutionOf(current) ? <Text style={styles.solution}>{solutionOf(current)}</Text> : null}
           </View>
@@ -310,7 +328,9 @@ const styles = StyleSheet.create({
   feedback: { borderTopWidth: 0 },
   feedbackInner: { width: '100%', maxWidth: 640, gap: 6 },
   feedbackHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  feedbackTitle: { fontFamily: fonts.bold, fontSize: 18 },
+  feedbackTitle: { fontFamily: fonts.bold, fontSize: 18, flex: 1 },
+  replay: { flexDirection: 'row', gap: 8 },
+  replayButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   solution: { fontFamily: fonts.medium, fontSize: 16, color: colors.ink, marginLeft: 36 },
   end: { alignItems: 'center', paddingHorizontal: 24 },
   endIcon: { width: 96, height: 96, borderRadius: 48, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
