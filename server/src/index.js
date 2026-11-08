@@ -9,7 +9,7 @@ import { lessons } from './content.js';
 import { scenarios, categories } from './scenarios.js';
 import { units, allSkills } from './course.js';
 import { buildSession } from './session.js';
-import { tutorReply, transcribe, aiEnabled, translateToPt, assistWriting, suggestReplies } from './ai.js';
+import { tutorReply, transcribe, aiEnabled, translateToPt, translateWord, assistWriting, suggestReplies } from './ai.js';
 import { scorePronunciation } from './pronunciation.js';
 
 const app = express();
@@ -399,6 +399,24 @@ app.get('/conversations/:id/suggestions', requireAuth, async (req, res, next) =>
     const pendingTasks = scenario.tasks.filter((_, i) => !done.includes(i));
     const history = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id').all(convo.id);
     res.json({ suggestions: await suggestReplies({ scenario, level: getUser(req.userId).level, history, pendingTasks }) });
+  } catch (err) { next(err); }
+});
+
+// Meaning of a single tapped word, in the context of its sentence. Cached in memory.
+const wordCache = new Map();
+app.post('/words/translate', requireAuth, async (req, res, next) => {
+  try {
+    const word = String(req.body?.word ?? '').trim().slice(0, 60);
+    const sentence = String(req.body?.sentence ?? '').trim().slice(0, 500);
+    if (!word) return res.status(400).json({ error: 'Palavra vazia' });
+    const key = `${word.toLowerCase()}|${sentence}`;
+    if (!wordCache.has(key)) {
+      const pt = await translateWord({ word, sentence });
+      if (!pt) return res.status(503).json({ error: 'Tradução indisponível no modo demo' });
+      if (wordCache.size > 5000) wordCache.clear();
+      wordCache.set(key, pt);
+    }
+    res.json({ pt: wordCache.get(key) });
   } catch (err) { next(err); }
 });
 

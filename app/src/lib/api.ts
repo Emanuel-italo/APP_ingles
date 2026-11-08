@@ -238,6 +238,8 @@ export const api = {
     request<WritingHelp>(`/conversations/${conversationId}/assist`, { method: 'POST', body: json({ text }) }),
   suggestions: (conversationId: number) =>
     request<{ suggestions: ReplySuggestion[] }>(`/conversations/${conversationId}/suggestions`),
+  translateWord: (word: string, sentence: string) =>
+    request<{ pt: string }>('/words/translate', { method: 'POST', body: json({ word, sentence }) }),
 
   saved: () => request<{ items: SavedItem[] }>('/saved'),
   save: (body: { kind: SavedItem['kind']; en: string; pt?: string | null; note?: string | null }) =>
